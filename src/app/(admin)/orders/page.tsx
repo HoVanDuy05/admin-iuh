@@ -7,8 +7,10 @@ import https from '@/api/https';
 import {
   Title, Card, Text, Badge, Stack, Group, Button,
   Box, Tabs, Paper, Table, ScrollArea, Modal, Radio, Divider, Textarea,
-  UnstyledButton, ThemeIcon, Image, SimpleGrid
+  UnstyledButton, ThemeIcon, Image, SimpleGrid,
+  Center
 } from '@mantine/core';
+import { DatePickerInput } from '@mantine/dates';
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconShoppingCart, IconEye, IconClock, IconCircleCheck,
@@ -17,6 +19,7 @@ import {
   IconPackage,
   IconBuildingBank,
   IconAlertTriangle,
+  IconChartBar,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { SectionLoader } from '@/components/common/GlobalLoading';
@@ -51,6 +54,10 @@ export default function OrdersPage() {
   const [cancelModalOpened, { open: openCancelModal, close: closeCancelModal }] = useDisclosure(false);
   const [cancelOrderId, setCancelOrderId] = useState<number | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+
+  // Stats Modal state
+  const [statsModalOpened, { open: openStatsModal, close: closeStatsModal }] = useDisclosure(false);
+  const [statsDate, setStatsDate] = useState<Date | null>(new Date());
 
   const { data: rawData, isLoading } = useQuery({
     queryKey: ['orders'],
@@ -147,6 +154,15 @@ export default function OrdersPage() {
           <Text size="sm" c="dimmed" fw={500}>Theo dõi và xử lý đơn hàng từ tất cả các bàn • Tự động làm mới mỗi 30 giây</Text>
         </Stack>
         <Group gap="sm">
+          <Button
+            variant="filled"
+            color="indigo"
+            leftSection={<IconChartBar size={18} />}
+            radius="md"
+            onClick={openStatsModal}
+          >
+            Thống kê doanh thu
+          </Button>
           <Paper withBorder radius="md" px="lg" py="xs" className="bg-blue-50 border-blue-100">
             <Group gap="xs">
               <IconShoppingCart size={16} className="text-blue-600" />
@@ -387,10 +403,10 @@ export default function OrdersPage() {
         }}
       >
         <Stack gap="xl" px="md" pb="md">
-          <Paper 
-            withBorder 
-            radius="xl" 
-            p="30px" 
+          <Paper
+            withBorder
+            radius="xl"
+            p="30px"
             className="bg-green-50/30 border-green-100 shadow-sm text-center"
             style={{ borderStyle: 'dashed' }}
           >
@@ -551,6 +567,106 @@ export default function OrdersPage() {
               Xác nhận Huỷ đơn
             </Button>
           </Group>
+        </Stack>
+      </Modal>
+
+      {/* ===== Modal Thống kê doanh thu theo ngày ===== */}
+      <Modal
+        opened={statsModalOpened}
+        onClose={closeStatsModal}
+        title={
+          <Group gap="xs">
+            <IconChartBar size={24} className="text-indigo-600" />
+            <Text fw={900} size="xl">Thống kê Doanh thu</Text>
+          </Group>
+        }
+        centered
+        radius="lg"
+        size="md"
+        overlayProps={{ blur: 10, backgroundOpacity: 0.1 }}
+      >
+        <Stack gap="lg">
+          <DatePickerInput
+            label="Chọn ngày xem thống kê"
+            placeholder="Chọn ngày"
+            value={statsDate}
+            onChange={(val: any) => setStatsDate(val)}
+            maxDate={new Date()}
+            radius="md"
+            valueFormat="DD/MM/YYYY"
+          />
+
+          {(() => {
+            const filtered = orders.filter(o =>
+              dayjs(o.updated_at || o.created_at).isSame(dayjs(statsDate), 'day') &&
+              o.order_status === 'done'
+            );
+            const cash = filtered.filter(o => o.payment_method === 'cash').reduce((s, o) => s + (Number(o.total_amount) || 0), 0);
+            const bank = filtered.filter(o => o.payment_method === 'transfer').reduce((s, o) => s + (Number(o.total_amount) || 0), 0);
+            const total = cash + bank;
+
+            return (
+              <Stack gap="md">
+                <Paper withBorder p="md" radius="md" className="bg-indigo-50 border-indigo-100">
+                  <Stack gap={4} align="center">
+                    <Text fw={800} size="xs" tt="uppercase" c="indigo">Tổng Doanh Thu Ngày {dayjs(statsDate).format('DD/MM/YYYY')}</Text>
+                    <Text fw={900} size="32px" c="indigo.9">{VND(total)}</Text>
+                  </Stack>
+                </Paper>
+
+                <SimpleGrid cols={2} spacing="md">
+                  <Card withBorder radius="md" p="md" className="bg-green-50/50 border-green-100">
+                    <Stack gap={0}>
+                      <Group gap="xs" mb={4}>
+                        <IconCash size={16} className="text-green-600" />
+                        <Text fw={800} size="xs" c="dimmed">TIỀN MẶT</Text>
+                      </Group>
+                      <Text fw={900} size="lg" c="green.8">{VND(cash)}</Text>
+                    </Stack>
+                  </Card>
+
+                  <Card withBorder radius="md" p="md" className="bg-blue-50/50 border-blue-100">
+                    <Stack gap={0}>
+                      <Group gap="xs" mb={4}>
+                        <IconBuildingBank size={16} className="text-blue-600" />
+                        <Text fw={800} size="xs" c="dimmed">CHUYỂN KHOẢN</Text>
+                      </Group>
+                      <Text fw={900} size="lg" c="blue.8">{VND(bank)}</Text>
+                    </Stack>
+                  </Card>
+                </SimpleGrid>
+
+                <Divider label="Chi tiết đơn đã hoàn tất" labelPosition="center" />
+
+                <ScrollArea.Autosize mah={300}>
+                  {filtered.length === 0 ? (
+                    <Center p="xl"><Text c="dimmed" size="sm">Không có đơn hàng nào trong ngày này.</Text></Center>
+                  ) : (
+                    <Stack gap="xs">
+                      {filtered.map(o => (
+                        <Paper key={o.id} withBorder p="xs" radius="sm">
+                          <Group justify="space-between">
+                            <div>
+                              <Text size="xs" fw={700}>#{o.id} - {o.table_name || 'Mang đi'}</Text>
+                              <Text size="xs" c="dimmed">{dayjs(o.updated_at).format('HH:mm')}</Text>
+                            </div>
+                            <Badge color={o.payment_method === 'cash' ? 'green' : 'blue'} size="xs" variant="light">
+                              {o.payment_method === 'cash' ? 'Tiền mặt' : 'CK'}
+                            </Badge>
+                            <Text fw={800} size="sm">{VND(o.total_amount)}</Text>
+                          </Group>
+                        </Paper>
+                      ))}
+                    </Stack>
+                  )}
+                </ScrollArea.Autosize>
+              </Stack>
+            );
+          })()}
+
+          <Button fullWidth onClick={closeStatsModal} variant="light" color="gray" radius="md">
+            Đóng
+          </Button>
         </Stack>
       </Modal>
     </Stack>
